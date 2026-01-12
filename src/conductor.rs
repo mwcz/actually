@@ -9,7 +9,7 @@ use crossterm::{
 use futures::future::join_all;
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
 use std::io::{stdout, Write};
 use std::path::Path;
@@ -193,8 +193,15 @@ pub async fn run(
                         transcript: strategy_transcript,
                     };
                 }
-                run_instance(i, &prompt, &strategy, &strategy_transcript, &excluded, &run_dir)
-                    .await
+                run_instance(
+                    i,
+                    &prompt,
+                    &strategy,
+                    &strategy_transcript,
+                    &excluded,
+                    &run_dir,
+                )
+                .await
             })
         })
         .collect();
@@ -265,6 +272,100 @@ fn truncate_for_log(s: &str, max_len: usize) -> String {
     }
 }
 
+/// Wrap a Line to fit within max_width, preserving styles
+fn wrap_styled_line(line: Line<'static>, max_width: usize) -> Vec<Line<'static>> {
+    if max_width == 0 {
+        return vec![line];
+    }
+
+    let mut result: Vec<Line<'static>> = Vec::new();
+    let mut current_spans: Vec<Span<'static>> = Vec::new();
+    let mut current_width: usize = 0;
+
+    for span in line.spans {
+        let style = span.style;
+        let content = span.content.into_owned();
+        let mut remaining = content.as_str();
+
+        while !remaining.is_empty() {
+            let available = max_width.saturating_sub(current_width);
+
+            if available == 0 {
+                // Current line is full, start new line
+                result.push(Line::from(std::mem::take(&mut current_spans)));
+                current_width = 0;
+                continue;
+            }
+
+            // Find a good break point
+            let take_chars: usize = if remaining.chars().count() <= available {
+                // Everything fits
+                remaining.chars().count()
+            } else {
+                // Need to break - prefer breaking at space
+                let chars: Vec<char> = remaining.chars().collect();
+                let mut break_at = available;
+
+                // Look for last space within available width
+                for i in (0..available).rev() {
+                    if chars.get(i) == Some(&' ') {
+                        break_at = i + 1; // Include the space
+                        break;
+                    }
+                }
+
+                // If no space found, hard break at available; ensure at least 1 char
+                if break_at == 0 {
+                    1
+                } else {
+                    break_at
+                }
+            };
+
+            let byte_end: usize = remaining
+                .char_indices()
+                .nth(take_chars)
+                .map(|(i, _)| i)
+                .unwrap_or(remaining.len());
+
+            let (taken, rest) = remaining.split_at(byte_end);
+            current_spans.push(Span::styled(taken.to_string(), style));
+            current_width += take_chars;
+            remaining = rest;
+
+            // If we took less than available, we're done with this span
+            if remaining.is_empty() {
+                break;
+            }
+
+            // Otherwise, we need to wrap - finish current line
+            result.push(Line::from(std::mem::take(&mut current_spans)));
+            current_width = 0;
+        }
+    }
+
+    // Don't forget remaining spans
+    if !current_spans.is_empty() {
+        result.push(Line::from(current_spans));
+    }
+
+    if result.is_empty() {
+        result.push(Line::from(""));
+    }
+
+    result
+}
+
+/// Wrap all lines in a Text to fit within max_width
+fn wrap_styled_text(text: Text<'static>, max_width: usize) -> Text<'static> {
+    let wrapped_lines: Vec<Line<'static>> = text
+        .lines
+        .into_iter()
+        .flat_map(|line| wrap_styled_line(line, max_width))
+        .collect();
+    Text::from(wrapped_lines)
+}
+
 /// Convert markdown text to ratatui styled Text with syntax highlighting
 fn markdown_to_styled_text(md: &str) -> Text<'static> {
     let mut lines: Vec<Line<'static>> = Vec::new();
@@ -325,7 +426,11 @@ fn markdown_to_styled_text(md: &str) -> Text<'static> {
             ]));
         }
         // Numbered lists
-        else if trimmed.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)
+        else if trimmed
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_digit())
+            .unwrap_or(false)
             && trimmed.contains(". ")
         {
             if let Some(dot_pos) = trimmed.find(". ") {
@@ -365,7 +470,9 @@ fn parse_inline_formatting(line: &str) -> Line<'static> {
             // Flush current text
             if !current_text.is_empty() {
                 let style = if in_bold {
-                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(Color::Gray)
                 };
@@ -385,8 +492,7 @@ fn parse_inline_formatting(line: &str) -> Line<'static> {
                 spans.push(Span::styled(std::mem::take(&mut current_text), style));
             }
             in_code = !in_code;
-        }
-        else {
+        } else {
             current_text.push(c);
         }
     }
@@ -396,7 +502,9 @@ fn parse_inline_formatting(line: &str) -> Line<'static> {
         let style = if in_code {
             Style::default().fg(Color::LightYellow)
         } else if in_bold {
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Gray)
         };
@@ -415,19 +523,18 @@ async fn interactive_strategy_review(
     prompt: &str,
     mut strategy_infos: Vec<StrategyInfo>,
 ) -> anyhow::Result<Vec<StrategyInfo>> {
-    let n = strategy_infos.len();
-
     // Setup terminal
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
     let mut list_state = ListState::default();
-    list_state.select(Some(n)); // Default to Accept option
+    list_state.select(Some(strategy_infos.len())); // Default to Accept option
 
     let mut status_message: Option<String> = None;
 
     loop {
+        let n = strategy_infos.len();
         let selected_idx = list_state.selected().unwrap_or(n);
 
         // Draw UI
@@ -452,30 +559,31 @@ async fn interactive_strategy_review(
             let left_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(2), // Title
                     Constraint::Min(5),    // List
                     Constraint::Length(2), // Help
                     Constraint::Length(1), // Status
                 ])
                 .split(main_chunks[0]);
 
-            // Title
-            let title = Paragraph::new("STRATEGY REVIEW")
-                .style(Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD));
-            frame.render_widget(title, left_chunks[0]);
-
             // Build list items (truncated for list view)
-            let list_width = left_chunks[1].width.saturating_sub(15) as usize; // Account for prefix
+            let list_width = left_chunks[0].width.saturating_sub(15) as usize; // Account for prefix
             let mut items: Vec<ListItem> = strategy_infos
                 .iter()
                 .enumerate()
                 .map(|(i, info)| {
-                    let (status, status_style) = if info.failed {
-                        ("[FAIL]", Style::default().fg(Color::Red))
+                    // Only show status for failed/edited, not OK
+                    let status_spans: Vec<Span> = if info.failed {
+                        vec![
+                            Span::styled("[FAIL]", Style::default().fg(Color::Red)),
+                            Span::raw(" "),
+                        ]
                     } else if info.manually_edited {
-                        ("[EDIT]", Style::default().fg(Color::Yellow))
+                        vec![
+                            Span::styled("[EDIT]", Style::default().fg(Color::Yellow)),
+                            Span::raw(" "),
+                        ]
                     } else {
-                        ("[OK]", Style::default().fg(Color::Green))
+                        vec![]
                     };
 
                     // Truncate strategy for list display
@@ -485,29 +593,27 @@ async fn interactive_strategy_review(
                         info.strategy.clone()
                     };
 
-                    let line = Line::from(vec![
-                        Span::styled(format!("C{} ", i), Style::default().add_modifier(Modifier::BOLD)),
-                        Span::styled(status, status_style),
-                        Span::raw(" "),
-                        Span::raw(strategy_display),
-                    ]);
+                    let mut spans = vec![Span::styled(
+                        format!("C{} ", i),
+                        Style::default().fg(Color::Cyan),
+                    )];
+                    spans.extend(status_spans);
+                    spans.push(Span::raw(strategy_display));
 
-                    ListItem::new(line)
+                    ListItem::new(Line::from(spans))
                 })
                 .collect();
 
             // Add Accept option
-            items.push(ListItem::new(Line::from(vec![
-                Span::styled(
-                    ">>> Accept all and proceed <<<",
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ])));
+            items.push(ListItem::new(Line::from(vec![Span::styled(
+                ">>> Accept all and proceed <<<",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            )])));
 
             let list = List::new(items)
-                .block(Block::default().borders(Borders::ALL).title("Strategies"))
+                .block(Block::default().borders(Borders::ALL).title(" Strategies "))
                 .highlight_style(
                     Style::default()
                         .bg(Color::DarkGray)
@@ -515,18 +621,19 @@ async fn interactive_strategy_review(
                 )
                 .highlight_symbol("▶ ");
 
-            frame.render_stateful_widget(list, left_chunks[1], &mut list_state);
+            frame.render_stateful_widget(list, left_chunks[0], &mut list_state);
 
             // Help text
-            let help = Paragraph::new("↑/k ↓/j: Navigate | Enter: Edit/Accept | q: Quit")
-                .style(Style::default().fg(Color::DarkGray));
-            frame.render_widget(help, left_chunks[2]);
+            let help = Paragraph::new(
+                "↑/k ↓/j: Navigate | Enter: Edit/Accept | d: Delete | o: Add | q: Quit",
+            )
+            .style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(help, left_chunks[1]);
 
             // Status message
             if let Some(ref msg) = status_message {
-                let status = Paragraph::new(msg.as_str())
-                    .style(Style::default().fg(Color::Yellow));
-                frame.render_widget(status, left_chunks[3]);
+                let status = Paragraph::new(msg.as_str()).style(Style::default().fg(Color::Yellow));
+                frame.render_widget(status, left_chunks[2]);
             }
 
             // Preview panel (if showing)
@@ -540,36 +647,46 @@ async fn interactive_strategy_review(
                 let preview_text = if selected_idx < n {
                     let info = &strategy_infos[selected_idx];
 
-                    // Build status line with explicit color
-                    let status_line = if info.failed {
-                        Line::from(Span::styled(
-                            "Status: FAILED",
-                            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                        ))
-                    } else if info.manually_edited {
-                        Line::from(Span::styled(
-                            "Status: EDITED",
-                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                        ))
-                    } else {
-                        Line::from(Span::styled(
-                            "Status: OK",
-                            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-                        ))
-                    };
-
-                    // Build preview with colored status + markdown-rendered strategy
-                    let mut text_lines = vec![status_line, Line::from("")];
+                    // Render strategy with markdown styling
                     let strategy_text = markdown_to_styled_text(&info.strategy);
-                    text_lines.extend(strategy_text.lines.into_iter().map(|l| l.to_owned()));
-                    Text::from(text_lines)
+
+                    // Prepend status line for failed/edited
+                    if info.failed {
+                        let mut lines = vec![
+                            Line::from(Span::styled(
+                                "Status: FAILED",
+                                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                            )),
+                            Line::from(""),
+                        ];
+                        lines.extend(strategy_text.lines);
+                        Text::from(lines)
+                    } else if info.manually_edited {
+                        let mut lines = vec![
+                            Line::from(Span::styled(
+                                "Status: EDITED",
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD),
+                            )),
+                            Line::from(""),
+                        ];
+                        lines.extend(strategy_text.lines);
+                        Text::from(lines)
+                    } else {
+                        // OK case - just return the styled strategy directly
+                        strategy_text
+                    }
                 } else {
                     Text::from("Select a strategy to preview, or press Enter to accept all.")
                 };
 
-                let preview = Paragraph::new(preview_text)
-                    .block(Block::default().borders(Borders::ALL).title(preview_title))
-                    .wrap(Wrap { trim: false });
+                // Wrap text to fit panel width (account for borders)
+                let wrap_width = main_chunks[1].width.saturating_sub(2) as usize;
+                let wrapped_text = wrap_styled_text(preview_text, wrap_width);
+
+                let preview = Paragraph::new(wrapped_text)
+                    .block(Block::default().borders(Borders::ALL).title(preview_title));
 
                 frame.render_widget(preview, main_chunks[1]);
             }
@@ -582,7 +699,9 @@ async fn interactive_strategy_review(
                     status_message = None; // Clear status on any keypress
 
                     // Handle Ctrl+C
-                    if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+                    if key.code == KeyCode::Char('c')
+                        && key.modifiers.contains(KeyModifiers::CONTROL)
+                    {
                         disable_raw_mode()?;
                         stdout().execute(LeaveAlternateScreen)?;
                         return Ok(vec![]);
@@ -621,8 +740,13 @@ async fn interactive_strategy_review(
                             let original_strategy = strategy_infos[idx].strategy.clone();
 
                             match edit_strategy_in_editor(&original_strategy) {
-                                Ok(Some(edited_strategy)) if edited_strategy != original_strategy => {
-                                    println!("Strategy modified for C{}, creating new agent...", idx);
+                                Ok(Some(edited_strategy))
+                                    if edited_strategy != original_strategy =>
+                                {
+                                    println!(
+                                        "Strategy modified for C{}, creating new agent...",
+                                        idx
+                                    );
 
                                     match create_agent_with_edited_strategy(
                                         prompt,
@@ -634,7 +758,8 @@ async fn interactive_strategy_review(
                                     {
                                         Ok(new_info) => {
                                             strategy_infos[idx] = new_info;
-                                            status_message = Some(format!("C{} strategy updated", idx));
+                                            status_message =
+                                                Some(format!("C{} strategy updated", idx));
                                         }
                                         Err(e) => {
                                             status_message = Some(format!("Error: {}", e));
@@ -646,6 +771,75 @@ async fn interactive_strategy_review(
                                 }
                                 Err(e) => {
                                     status_message = Some(format!("Editor error: {}", e));
+                                }
+                            }
+
+                            // Re-enter TUI
+                            enable_raw_mode()?;
+                            stdout().execute(EnterAlternateScreen)?;
+                            terminal.clear()?;
+                        }
+                        KeyCode::Char('d') | KeyCode::Delete => {
+                            let selected = list_state.selected().unwrap_or(n);
+                            if selected < n && n > 1 {
+                                // Remove strategy from list (must keep at least 1)
+                                strategy_infos.remove(selected);
+                                status_message = Some(format!("Removed C{}", selected));
+
+                                // Adjust selection if needed
+                                let new_n = strategy_infos.len();
+                                if selected >= new_n {
+                                    list_state.select(Some(new_n)); // Select Accept
+                                }
+                            } else if selected < n && n == 1 {
+                                status_message = Some("Cannot remove last strategy".to_string());
+                            } else {
+                                status_message = Some("Select a strategy to delete".to_string());
+                            }
+                        }
+                        KeyCode::Char('o') => {
+                            // Add a new strategy
+                            disable_raw_mode()?;
+                            stdout().execute(LeaveAlternateScreen)?;
+
+                            println!("Generating new strategy C{}...", n);
+
+                            // Get existing non-failed strategies for exclusion
+                            let existing_strategies: Vec<String> = strategy_infos
+                                .iter()
+                                .filter(|s| !s.failed)
+                                .map(|s| s.strategy.clone())
+                                .collect();
+
+                            let strategy_prompt =
+                                build_strategy_prompt(prompt, &existing_strategies);
+                            let session = ClaudeSession::new();
+
+                            match session.query_strategy(&strategy_prompt).await {
+                                Ok(response) => {
+                                    let strategy = parse_strategy(&response);
+                                    println!("  C{}: {}", n, truncate_for_log(&strategy, 60));
+
+                                    strategy_infos.push(StrategyInfo {
+                                        strategy,
+                                        transcript: response,
+                                        failed: false,
+                                        error: None,
+                                        manually_edited: false,
+                                    });
+                                    status_message = Some(format!("Added C{}", n));
+                                }
+                                Err(e) => {
+                                    let error_msg = format!("Failed to generate strategy: {}", e);
+                                    eprintln!("ERROR: {}", error_msg);
+                                    strategy_infos.push(StrategyInfo {
+                                        strategy: format!("[FAILED] {}", error_msg),
+                                        transcript: format!("Error: {}", e),
+                                        failed: true,
+                                        error: Some(error_msg.clone()),
+                                        manually_edited: false,
+                                    });
+                                    status_message = Some(format!("C{} failed: {}", n, error_msg));
                                 }
                             }
 
@@ -673,8 +867,14 @@ fn edit_strategy_in_editor(strategy: &str) -> anyhow::Result<Option<String>> {
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
 
     let mut temp_file = NamedTempFile::new()?;
-    writeln!(temp_file, "# Edit the strategy below. Lines starting with # are ignored.")?;
-    writeln!(temp_file, "# Save and exit to apply changes, or exit without saving to cancel.")?;
+    writeln!(
+        temp_file,
+        "# Edit the strategy below. Lines starting with # are ignored."
+    )?;
+    writeln!(
+        temp_file,
+        "# Save and exit to apply changes, or exit without saving to cancel."
+    )?;
     writeln!(temp_file)?;
     writeln!(temp_file, "{}", strategy)?;
     temp_file.flush()?;
@@ -811,7 +1011,10 @@ async fn run_instance(
     let session = ClaudeSession::with_cwd(workspace.path());
 
     match session.run_implementation(&full_prompt).await {
-        Ok(SessionResult { transcript, success }) => {
+        Ok(SessionResult {
+            transcript,
+            success,
+        }) => {
             let full_transcript = format!(
                 "=== STRATEGY SELECTION ===\n{}\n\n{}",
                 strategy_transcript, transcript

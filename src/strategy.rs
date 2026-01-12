@@ -7,7 +7,7 @@ Task: {task}
 Reply with exactly this format:
 STRATEGY: <your approach in 2-4 sentences>"#;
 
-const EXCLUSION_HEADER: &str = "You must suggest a novel approach UTTERLY DIFFERENT from your competitors while still satisfying the task.  Your competitors are using these approaches:";
+const EXCLUSION_HEADER: &str = "You MUST suggest a novel approach UTTERLY DIFFERENT from your competitors while still satisfying the task.  Using Markdown, make the primary differentiators of your approach bold, and wrap any code snippets in backticks.  Your competitors are using these approaches:";
 
 const IMPLEMENTATION_PROMPT_TEMPLATE: &str = r#"Implement the following task using the specified strategy.
 
