@@ -38,7 +38,7 @@ struct StrategyInfo {
 pub async fn run(
     prompt: &str,
     n: usize,
-    workdir: &str,
+    run_dir: &Path,
     dry_run: bool,
     interactive: bool,
 ) -> anyhow::Result<Vec<InstanceResult>> {
@@ -180,7 +180,7 @@ pub async fn run(
                 .filter(|(idx, s)| *idx != i && !s.failed)
                 .map(|(_, s)| s.strategy.clone())
                 .collect();
-            let workdir = workdir.to_string();
+            let run_dir = run_dir.to_path_buf();
 
             tokio::spawn(async move {
                 if failed {
@@ -193,7 +193,7 @@ pub async fn run(
                         transcript: strategy_transcript,
                     };
                 }
-                run_instance(i, &prompt, &strategy, &strategy_transcript, &excluded, &workdir)
+                run_instance(i, &prompt, &strategy, &strategy_transcript, &excluded, &run_dir)
                     .await
             })
         })
@@ -265,6 +265,151 @@ fn truncate_for_log(s: &str, max_len: usize) -> String {
     }
 }
 
+/// Convert markdown text to ratatui styled Text with syntax highlighting
+fn markdown_to_styled_text(md: &str) -> Text<'static> {
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut in_code_block = false;
+
+    for line in md.lines() {
+        let trimmed = line.trim();
+
+        // Code block toggle
+        if trimmed.starts_with("```") {
+            in_code_block = !in_code_block;
+            lines.push(Line::from(Span::styled(
+                line.to_string(),
+                Style::default().fg(Color::DarkGray),
+            )));
+            continue;
+        }
+
+        // Inside code block
+        if in_code_block {
+            lines.push(Line::from(Span::styled(
+                line.to_string(),
+                Style::default().fg(Color::LightYellow),
+            )));
+            continue;
+        }
+
+        // Headers
+        if trimmed.starts_with("### ") {
+            lines.push(Line::from(Span::styled(
+                line.to_string(),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )));
+        } else if trimmed.starts_with("## ") {
+            lines.push(Line::from(Span::styled(
+                line.to_string(),
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
+            )));
+        } else if trimmed.starts_with("# ") {
+            lines.push(Line::from(Span::styled(
+                line.to_string(),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            )));
+        }
+        // Bullet points
+        else if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
+            let bullet = &line[..line.find(|c| c == '-' || c == '*').unwrap() + 2];
+            let rest = &line[line.find(|c| c == '-' || c == '*').unwrap() + 2..];
+            lines.push(Line::from(vec![
+                Span::styled(bullet.to_string(), Style::default().fg(Color::Blue)),
+                Span::styled(rest.to_string(), Style::default().fg(Color::White)),
+            ]));
+        }
+        // Numbered lists
+        else if trimmed.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)
+            && trimmed.contains(". ")
+        {
+            if let Some(dot_pos) = trimmed.find(". ") {
+                let prefix_len = line.len() - trimmed.len();
+                let num_part = &line[..prefix_len + dot_pos + 2];
+                let rest = &line[prefix_len + dot_pos + 2..];
+                lines.push(Line::from(vec![
+                    Span::styled(num_part.to_string(), Style::default().fg(Color::Blue)),
+                    Span::styled(rest.to_string(), Style::default().fg(Color::White)),
+                ]));
+            } else {
+                lines.push(Line::from(line.to_string()));
+            }
+        }
+        // Regular text with inline formatting (code, bold)
+        else {
+            lines.push(parse_inline_formatting(line));
+        }
+    }
+
+    Text::from(lines)
+}
+
+/// Parse inline formatting: `code` and **bold**
+fn parse_inline_formatting(line: &str) -> Line<'static> {
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut chars = line.chars().peekable();
+    let mut current_text = String::new();
+    let mut in_code = false;
+    let mut in_bold = false;
+
+    while let Some(c) = chars.next() {
+        // Check for ** (bold)
+        if c == '*' && chars.peek() == Some(&'*') && !in_code {
+            chars.next(); // consume second *
+
+            // Flush current text
+            if !current_text.is_empty() {
+                let style = if in_bold {
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Gray)
+                };
+                spans.push(Span::styled(std::mem::take(&mut current_text), style));
+            }
+            in_bold = !in_bold;
+        }
+        // Check for ` (inline code)
+        else if c == '`' && !in_bold {
+            // Flush current text
+            if !current_text.is_empty() {
+                let style = if in_code {
+                    Style::default().fg(Color::LightYellow)
+                } else {
+                    Style::default().fg(Color::Gray)
+                };
+                spans.push(Span::styled(std::mem::take(&mut current_text), style));
+            }
+            in_code = !in_code;
+        }
+        else {
+            current_text.push(c);
+        }
+    }
+
+    // Flush remaining text
+    if !current_text.is_empty() {
+        let style = if in_code {
+            Style::default().fg(Color::LightYellow)
+        } else if in_bold {
+            Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Gray)
+        };
+        spans.push(Span::styled(current_text, style));
+    }
+
+    if spans.is_empty() {
+        Line::from("")
+    } else {
+        Line::from(spans)
+    }
+}
+
 /// Interactive strategy review using ratatui TUI
 async fn interactive_strategy_review(
     prompt: &str,
@@ -316,7 +461,7 @@ async fn interactive_strategy_review(
 
             // Title
             let title = Paragraph::new("STRATEGY REVIEW")
-                .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+                .style(Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD));
             frame.render_widget(title, left_chunks[0]);
 
             // Build list items (truncated for list view)
@@ -386,30 +531,45 @@ async fn interactive_strategy_review(
 
             // Preview panel (if showing)
             if show_preview {
-                let preview_content = if selected_idx < n {
-                    let info = &strategy_infos[selected_idx];
-                    let status_line = if info.failed {
-                        "Status: FAILED"
-                    } else if info.manually_edited {
-                        "Status: EDITED"
-                    } else {
-                        "Status: OK"
-                    };
-                    format!("{}\n\n{}", status_line, info.strategy)
-                } else {
-                    "Select a strategy to preview, or press Enter to accept all.".to_string()
-                };
-
                 let preview_title = if selected_idx < n {
                     format!(" C{} Preview ", selected_idx)
                 } else {
                     " Preview ".to_string()
                 };
 
-                let preview = Paragraph::new(preview_content)
+                let preview_text = if selected_idx < n {
+                    let info = &strategy_infos[selected_idx];
+
+                    // Build status line with explicit color
+                    let status_line = if info.failed {
+                        Line::from(Span::styled(
+                            "Status: FAILED",
+                            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                        ))
+                    } else if info.manually_edited {
+                        Line::from(Span::styled(
+                            "Status: EDITED",
+                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                        ))
+                    } else {
+                        Line::from(Span::styled(
+                            "Status: OK",
+                            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                        ))
+                    };
+
+                    // Build preview with colored status + markdown-rendered strategy
+                    let mut text_lines = vec![status_line, Line::from("")];
+                    let strategy_text = markdown_to_styled_text(&info.strategy);
+                    text_lines.extend(strategy_text.lines.into_iter().map(|l| l.to_owned()));
+                    Text::from(text_lines)
+                } else {
+                    Text::from("Select a strategy to preview, or press Enter to accept all.")
+                };
+
+                let preview = Paragraph::new(preview_text)
                     .block(Block::default().borders(Borders::ALL).title(preview_title))
-                    .wrap(Wrap { trim: false })
-                    .style(Style::default().fg(Color::White));
+                    .wrap(Wrap { trim: false });
 
                 frame.render_widget(preview, main_chunks[1]);
             }
@@ -631,9 +791,9 @@ async fn run_instance(
     strategy: &str,
     strategy_transcript: &str,
     excluded_strategies: &[String],
-    workdir: &str,
+    run_dir: &Path,
 ) -> InstanceResult {
-    let workspace = match Workspace::create(Path::new(workdir), id) {
+    let workspace = match Workspace::create(run_dir, id) {
         Ok(ws) => ws,
         Err(e) => {
             return InstanceResult {

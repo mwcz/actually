@@ -1,4 +1,4 @@
-const STRATEGY_PROMPT_TEMPLATE: &str = r#"For the following task, describe ONLY your implementation strategy in 2-4 sentences. Do not implement anything yet.
+const STRATEGY_PROMPT_TEMPLATE: &str = r#"For the following task, describe ONLY your implementation plan in 2-4 sentences. Do not implement anything yet.
 
 Task: {task}
 
@@ -7,7 +7,7 @@ Task: {task}
 Reply with exactly this format:
 STRATEGY: <your approach in 2-4 sentences>"#;
 
-const EXCLUSION_HEADER: &str = "You MUST NOT use any of these approaches:";
+const EXCLUSION_HEADER: &str = "You must suggest a novel approach UTTERLY DIFFERENT from your competitors while still satisfying the task.  Your competitors are using these approaches:";
 
 const IMPLEMENTATION_PROMPT_TEMPLATE: &str = r#"Implement the following task using the specified strategy.
 
@@ -44,9 +44,7 @@ pub fn build_implementation_prompt(
     let exclusions = if excluded_strategies.is_empty() {
         String::new()
     } else {
-        let mut lines = vec![
-            "FORBIDDEN APPROACHES (do not use these):".to_string()
-        ];
+        let mut lines = vec!["FORBIDDEN APPROACHES (do not use these):".to_string()];
         for (i, s) in excluded_strategies.iter().enumerate() {
             lines.push(format!("{}. {}", i + 1, s));
         }
@@ -64,11 +62,7 @@ pub fn parse_strategy(response: &str) -> String {
     if let Some(idx) = response.find("STRATEGY:") {
         let after_prefix = &response[idx + "STRATEGY:".len()..];
         // Take until end of line or end of string, trimmed
-        let strategy = after_prefix
-            .lines()
-            .next()
-            .unwrap_or(after_prefix)
-            .trim();
+        let strategy = after_prefix.lines().next().unwrap_or(after_prefix).trim();
 
         // If strategy is on subsequent lines (multiline response), grab more
         if strategy.is_empty() {
@@ -76,7 +70,7 @@ pub fn parse_strategy(response: &str) -> String {
             after_prefix
                 .lines()
                 .skip(1)
-                .take(4)  // Max 4 lines
+                .take(4) // Max 4 lines
                 .collect::<Vec<_>>()
                 .join(" ")
                 .trim()
@@ -87,7 +81,12 @@ pub fn parse_strategy(response: &str) -> String {
     } else {
         // Fallback: use first 500 chars as strategy
         tracing::warn!("No STRATEGY: prefix found, using raw response");
-        response.chars().take(500).collect::<String>().trim().to_string()
+        response
+            .chars()
+            .take(500)
+            .collect::<String>()
+            .trim()
+            .to_string()
     }
 }
 
@@ -118,7 +117,10 @@ mod tests {
     fn test_parse_strategy() {
         let response = "STRATEGY: I will use Actix-web with async SQLx for database access.";
         let strategy = parse_strategy(response);
-        assert_eq!(strategy, "I will use Actix-web with async SQLx for database access.");
+        assert_eq!(
+            strategy,
+            "I will use Actix-web with async SQLx for database access."
+        );
     }
 
     #[test]

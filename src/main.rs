@@ -23,9 +23,9 @@ struct Args {
     #[arg(short = 'n', long = "num", default_value = "3")]
     num_instances: usize,
 
-    /// Working directory for instance workspaces
+    /// Output directory for run artifacts and agent workspaces
     #[arg(short, long, default_value = ".")]
-    workdir: String,
+    out_dir: String,
 
     /// Enable verbose logging
     #[arg(short, long)]
@@ -73,15 +73,15 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    // Create output directory
-    let run_output = RunOutput::create(Path::new(&args.workdir), &args.prompt, args.interactive)?;
+    // Create run output directory structure
+    let run_output = RunOutput::create(Path::new(&args.out_dir), args.interactive)?;
 
     // Run with signal handling
     let results = tokio::select! {
         result = conductor::run(
             &args.prompt,
             args.num_instances,
-            &args.workdir,
+            run_output.path(),
             args.dry_run,
             args.interactive,
         ) => result?,
