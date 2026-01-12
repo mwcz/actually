@@ -455,6 +455,8 @@ fn markdown_to_styled_text(md: &str) -> Text<'static> {
 }
 
 /// Parse inline formatting: `code` and **bold**
+/// - Bold (**) is NOT processed inside code blocks (** may be code syntax)
+/// - Code (`) IS processed inside bold (allows bold text with code snippets)
 fn parse_inline_formatting(line: &str) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut chars = line.chars().peekable();
@@ -462,34 +464,38 @@ fn parse_inline_formatting(line: &str) -> Line<'static> {
     let mut in_code = false;
     let mut in_bold = false;
 
+    // Helper to build style based on current state
+    let make_style = |in_code: bool, in_bold: bool| -> Style {
+        match (in_code, in_bold) {
+            (true, true) => Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD),
+            (true, false) => Style::default().fg(Color::LightYellow),
+            (false, true) => Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            (false, false) => Style::default().fg(Color::Gray),
+        }
+    };
+
     while let Some(c) = chars.next() {
-        // Check for ** (bold)
+        // Check for ** (bold) - only when NOT in code
         if c == '*' && chars.peek() == Some(&'*') && !in_code {
             chars.next(); // consume second *
 
             // Flush current text
             if !current_text.is_empty() {
-                let style = if in_bold {
-                    Style::default()
-                        .fg(Color::White)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::Gray)
-                };
-                spans.push(Span::styled(std::mem::take(&mut current_text), style));
+                spans.push(Span::styled(
+                    std::mem::take(&mut current_text),
+                    make_style(in_code, in_bold),
+                ));
             }
             in_bold = !in_bold;
         }
-        // Check for ` (inline code)
-        else if c == '`' && !in_bold {
+        // Check for ` (inline code) - always process
+        else if c == '`' {
             // Flush current text
             if !current_text.is_empty() {
-                let style = if in_code {
-                    Style::default().fg(Color::LightYellow)
-                } else {
-                    Style::default().fg(Color::Gray)
-                };
-                spans.push(Span::styled(std::mem::take(&mut current_text), style));
+                spans.push(Span::styled(
+                    std::mem::take(&mut current_text),
+                    make_style(in_code, in_bold),
+                ));
             }
             in_code = !in_code;
         } else {
@@ -499,16 +505,7 @@ fn parse_inline_formatting(line: &str) -> Line<'static> {
 
     // Flush remaining text
     if !current_text.is_empty() {
-        let style = if in_code {
-            Style::default().fg(Color::LightYellow)
-        } else if in_bold {
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Gray)
-        };
-        spans.push(Span::styled(current_text, style));
+        spans.push(Span::styled(current_text, make_style(in_code, in_bold)));
     }
 
     if spans.is_empty() {
