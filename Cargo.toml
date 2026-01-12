@@ -1,5 +1,5 @@
 [package]
-name = "claudissent"
+name = "contra"
 version = "0.1.0"
 edition = "2021"
 description = "Orchestrate contrarian Claude Code instances"
