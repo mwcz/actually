@@ -1,6 +1,4 @@
-use claude_code_agent_sdk::{
-    query, ClaudeAgentOptions, ClaudeClient, Message, PermissionMode,
-};
+use claude_code_agent_sdk::{query, ClaudeAgentOptions, ClaudeClient, Message, PermissionMode};
 use futures::StreamExt;
 use std::path::{Path, PathBuf};
 use thiserror::Error;

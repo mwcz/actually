@@ -467,9 +467,13 @@ fn parse_inline_formatting(line: &str) -> Line<'static> {
     // Helper to build style based on current state
     let make_style = |in_code: bool, in_bold: bool| -> Style {
         match (in_code, in_bold) {
-            (true, true) => Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD),
+            (true, true) => Style::default()
+                .fg(Color::LightYellow)
+                .add_modifier(Modifier::BOLD),
             (true, false) => Style::default().fg(Color::LightYellow),
-            (false, true) => Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            (false, true) => Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
             (false, false) => Style::default().fg(Color::Gray),
         }
     };

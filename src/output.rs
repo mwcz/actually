@@ -10,9 +10,9 @@ pub enum OutputError {
     CreateDirFailed(#[from] std::io::Error),
 }
 
-/// Manages the output directory for a claudissent run
+/// Manages the output directory for a contra run
 /// Structure:
-///   {base_dir}/claudissent-{timestamp}/
+///   {base_dir}/contra-{timestamp}/
 ///     strategies    - Summary of all strategies
 ///     c0/           - Workspace and log for instance 0
 ///     c1/           - Workspace and log for instance 1
@@ -29,7 +29,7 @@ impl RunOutput {
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
-        let dir_name = format!("claudissent-{}", timestamp);
+        let dir_name = format!("contra-{}", timestamp);
         let run_dir = base_dir.join(dir_name);
 
         fs::create_dir_all(&run_dir)?;
@@ -48,7 +48,10 @@ impl RunOutput {
     }
 
     /// Write the strategies summary file
-    pub fn write_strategies(&self, strategies: &[(usize, String, bool)]) -> Result<(), OutputError> {
+    pub fn write_strategies(
+        &self,
+        strategies: &[(usize, String, bool)],
+    ) -> Result<(), OutputError> {
         let strategies_path = self.run_dir.join("strategies");
         let mut file = fs::File::create(&strategies_path)?;
 
@@ -85,7 +88,11 @@ impl RunOutput {
         writeln!(file, "CLAUDISSENT AGENT C{}", instance_id)?;
         writeln!(file, "========================")?;
         writeln!(file)?;
-        writeln!(file, "Status: {}", if success { "SUCCESS" } else { "FAILED" })?;
+        writeln!(
+            file,
+            "Status: {}",
+            if success { "SUCCESS" } else { "FAILED" }
+        )?;
         if let Some(err) = error {
             writeln!(file, "Error: {}", err)?;
         }

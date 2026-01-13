@@ -11,7 +11,7 @@ use tokio::signal;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser, Debug)]
-#[command(name = "claudissent")]
+#[command(name = "contra")]
 #[command(about = "Orchestrate contrarian Claude Code instances")]
 #[command(version)]
 struct Args {
@@ -49,19 +49,21 @@ async fn main() -> anyhow::Result<()> {
     let filter = if args.interactive {
         "off"
     } else if args.verbose {
-        "claudissent=debug,claude_code_agent_sdk=debug"
+        "contra=debug,claude_code_agent_sdk=debug"
     } else {
-        "claudissent=info"
+        "contra=info"
     };
 
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| filter.into()))
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| filter.into()),
+        )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
     if args.interactive {
         println!(
-            "claudissent: {} instances, prompt: \"{}\"",
+            "Starting Contra (Contrarian Claude): {} instances, prompt: \"{}\"",
             args.num_instances,
             truncate(&args.prompt, 50)
         );
@@ -69,7 +71,7 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!(
             num_instances = args.num_instances,
             dry_run = args.dry_run,
-            "Starting claudissent"
+            "Starting contra (Contrarian Claude)"
         );
     }
 
