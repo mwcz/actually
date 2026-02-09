@@ -232,7 +232,7 @@ pub async fn run(
     if interactive {
         println!("Complete: {} succeeded, {} failed", succeeded, failed_count);
     } else {
-        tracing::info!(succeeded, failed = failed_count, "Claudissent complete");
+        tracing::info!(succeeded, failed = failed_count, "Contra complete");
     }
 
     for result in &results {
@@ -626,7 +626,7 @@ async fn interactive_strategy_review(
 
             // Help text
             let help = Paragraph::new(
-                "↑/k ↓/j: Navigate | Enter: Edit/Accept | d: Delete | o: Add | q: Quit",
+                "↑/k ↓/j: Navigate | Enter: Edit/Accept | c: Copy | d: Delete | o: Add | q: Quit",
             )
             .style(Style::default().fg(Color::DarkGray));
             frame.render_widget(help, left_chunks[1]);
@@ -796,6 +796,32 @@ async fn interactive_strategy_review(
                                 status_message = Some("Cannot remove last strategy".to_string());
                             } else {
                                 status_message = Some("Select a strategy to delete".to_string());
+                            }
+                        }
+                        KeyCode::Char('c') => {
+                            // Copy current strategy to clipboard
+                            let selected = list_state.selected().unwrap_or(n);
+                            if selected < n {
+                                let strategy_text = &strategy_infos[selected].strategy;
+                                match arboard::Clipboard::new() {
+                                    Ok(mut clipboard) => {
+                                        match clipboard.set_text(strategy_text.clone()) {
+                                            Ok(()) => {
+                                                status_message =
+                                                    Some(format!("C{} copied to clipboard", selected));
+                                            }
+                                            Err(e) => {
+                                                status_message =
+                                                    Some(format!("Clipboard error: {}", e));
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        status_message = Some(format!("Clipboard error: {}", e));
+                                    }
+                                }
+                            } else {
+                                status_message = Some("Select a strategy to copy".to_string());
                             }
                         }
                         KeyCode::Char('o') => {
