@@ -533,6 +533,7 @@ async fn interactive_strategy_review(
     list_state.select(Some(strategy_infos.len())); // Default to Accept option
 
     let mut status_message: Option<String> = None;
+    let mut clipboard = arboard::Clipboard::new().ok();
 
     loop {
         let n = strategy_infos.len();
@@ -802,23 +803,20 @@ async fn interactive_strategy_review(
                             // Copy current strategy to clipboard
                             let selected = list_state.selected().unwrap_or(n);
                             if selected < n {
-                                let strategy_text = &strategy_infos[selected].strategy;
-                                match arboard::Clipboard::new() {
-                                    Ok(mut clipboard) => {
-                                        match clipboard.set_text(strategy_text.clone()) {
-                                            Ok(()) => {
-                                                status_message =
-                                                    Some(format!("C{} copied to clipboard", selected));
-                                            }
-                                            Err(e) => {
-                                                status_message =
-                                                    Some(format!("Clipboard error: {}", e));
-                                            }
+                                if let Some(ref mut cb) = clipboard {
+                                    let strategy_text = &strategy_infos[selected].strategy;
+                                    match cb.set_text(strategy_text.clone()) {
+                                        Ok(()) => {
+                                            status_message =
+                                                Some(format!("C{} copied to clipboard", selected));
+                                        }
+                                        Err(e) => {
+                                            status_message =
+                                                Some(format!("Clipboard error: {}", e));
                                         }
                                     }
-                                    Err(e) => {
-                                        status_message = Some(format!("Clipboard error: {}", e));
-                                    }
+                                } else {
+                                    status_message = Some("Clipboard unavailable".to_string());
                                 }
                             } else {
                                 status_message = Some("Select a strategy to copy".to_string());
