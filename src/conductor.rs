@@ -1,5 +1,7 @@
 use crate::session::{ClaudeSession, SessionResult};
-use crate::strategy::{build_implementation_prompt, build_strategy_prompt, parse_strategy, Strategy};
+use crate::strategy::{
+    build_implementation_prompt, build_strategy_prompt, parse_strategy, Strategy,
+};
 use crate::workspace::Workspace;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
@@ -33,6 +35,13 @@ struct StrategyInfo {
     failed: bool,
     error: Option<String>,
     manually_edited: bool,
+}
+
+/// Result of a chat session with Claude about a strategy
+enum ChatResult {
+    NoChanges,
+    RevisedStrategy(String),
+    Error(String),
 }
 
 pub async fn run(
@@ -140,7 +149,8 @@ pub async fn run(
                 .map(|(_, s)| s.strategy.markdown.clone())
                 .collect();
 
-            let impl_prompt = build_implementation_prompt(prompt, &info.strategy.markdown, &excluded);
+            let impl_prompt =
+                build_implementation_prompt(prompt, &info.strategy.markdown, &excluded);
             println!("\n=== DRY RUN: Implementation prompt for C{} ===", i);
             println!("{}", impl_prompt);
             println!("=== END PROMPT ===");
@@ -632,8 +642,8 @@ async fn interactive_strategy_review(
             frame.render_stateful_widget(list, left_chunks[0], &mut list_state);
 
             // Help hint
-            let help = Paragraph::new("?: Help & keymaps")
-                .style(Style::default().fg(Color::DarkGray));
+            let help =
+                Paragraph::new("?: Help & keymaps").style(Style::default().fg(Color::DarkGray));
             frame.render_widget(help, left_chunks[1]);
 
             // Status message
@@ -723,6 +733,10 @@ async fn interactive_strategy_review(
                     Line::from(vec![
                         Span::styled("o", Style::default().add_modifier(Modifier::BOLD)),
                         Span::raw("  Add new strategy"),
+                    ]),
+                    Line::from(vec![
+                        Span::styled("t", Style::default().add_modifier(Modifier::BOLD)),
+                        Span::raw("  Talk/chat about strategy"),
                     ]),
                     Line::from(vec![
                         Span::styled("q/Esc", Style::default().add_modifier(Modifier::BOLD)),
@@ -910,7 +924,11 @@ async fn interactive_strategy_review(
                             match session.query_strategy(&strategy_prompt).await {
                                 Ok(response) => {
                                     let strategy = parse_strategy(&response);
-                                    println!("  C{}: {}", n, truncate_for_log(&strategy.markdown, 60));
+                                    println!(
+                                        "  C{}: {}",
+                                        n,
+                                        truncate_for_log(&strategy.markdown, 60)
+                                    );
 
                                     strategy_infos.push(StrategyInfo {
                                         strategy,
@@ -939,6 +957,58 @@ async fn interactive_strategy_review(
                             enable_raw_mode()?;
                             stdout().execute(EnterAlternateScreen)?;
                             terminal.clear()?;
+                        }
+                        KeyCode::Char('t') => {
+                            let selected = list_state.selected().unwrap_or(n);
+                            if selected < n {
+                                // Build list of other strategies to exclude
+                                let excluded: Vec<String> = strategy_infos
+                                    .iter()
+                                    .enumerate()
+                                    .filter(|(i, s)| *i != selected && !s.failed)
+                                    .map(|(_, s)| s.strategy.markdown.clone())
+                                    .collect();
+
+                                // Exit TUI temporarily for chat
+                                disable_raw_mode()?;
+                                stdout().execute(LeaveAlternateScreen)?;
+
+                                match chat_with_strategy(
+                                    prompt,
+                                    &strategy_infos[selected],
+                                    selected,
+                                    &excluded,
+                                ) {
+                                    ChatResult::NoChanges => {
+                                        status_message =
+                                            Some("Chat ended without changes".to_string());
+                                    }
+                                    ChatResult::RevisedStrategy(new_markdown) => {
+                                        strategy_infos[selected] = StrategyInfo {
+                                            strategy: Strategy::parse(&new_markdown),
+                                            transcript: format!(
+                                                "Revised via chat: {}",
+                                                new_markdown
+                                            ),
+                                            failed: false,
+                                            error: None,
+                                            manually_edited: true,
+                                        };
+                                        status_message =
+                                            Some(format!("C{} strategy revised", selected));
+                                    }
+                                    ChatResult::Error(msg) => {
+                                        status_message = Some(format!("Chat error: {}", msg));
+                                    }
+                                }
+
+                                // Re-enter TUI
+                                enable_raw_mode()?;
+                                stdout().execute(EnterAlternateScreen)?;
+                                terminal.clear()?;
+                            } else {
+                                status_message = Some("Select a strategy to discuss".to_string());
+                            }
                         }
                         _ => {}
                     }
@@ -1000,6 +1070,117 @@ fn edit_strategy_in_editor(strategy: &str) -> anyhow::Result<Option<String>> {
     }
 
     Ok(Some(edited))
+}
+
+/// Open a chat session with Claude to discuss/revise a strategy
+fn chat_with_strategy(
+    task_prompt: &str,
+    strategy_info: &StrategyInfo,
+    strategy_idx: usize,
+    excluded_strategies: &[String],
+) -> ChatResult {
+    // Create unique temp file path for revised strategy output
+    let temp_path = std::env::temp_dir().join(format!(
+        "contra-strategy-{}-{}.md",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+
+    // Build forbidden approaches section
+    let exclusions = if excluded_strategies.is_empty() {
+        String::new()
+    } else {
+        let mut lines = vec![
+            String::new(),
+            "## FORBIDDEN APPROACHES (do not suggest these)".to_string(),
+        ];
+        for (i, s) in excluded_strategies.iter().enumerate() {
+            lines.push(format!("{}. {}", i + 1, s));
+        }
+        lines.join("\n")
+    };
+
+    // Build system prompt with context
+    let system_prompt = format!(
+        r#"You are helping discuss a coding strategy for a task.
+
+## Task
+{}
+
+## Current Strategy (C{})
+{}
+{}
+
+---
+
+START your first message with exactly:
+
+Discussing strategy: {}
+
+What would you like to know?
+
+Tip: Say **"revise"** and I will update the strategy. Then you may exit claude to return to `contra`.
+
+Then wait for the user's question. Answer their questions helpfully.
+Do not suggest alternative strategies - focus on the current one.
+
+If the user asks you to revise or update the strategy, write the complete revised
+strategy (in markdown with **bold** key qualities) to this file:
+{}
+
+When writing to the file, include ONLY the strategy text, nothing else.
+After writing the revised strategy, tell the user: "Strategy revised. Type `/exit` to return to contra.""#,
+        task_prompt,
+        strategy_idx,
+        strategy_info.strategy.markdown,
+        exclusions,
+        strategy_info.strategy.markdown,
+        temp_path.display()
+    );
+
+    // Spawn claude CLI as subprocess (interactive TUI mode with system prompt)
+    // Pass a simple prompt to trigger Claude's greeting message
+    let status = Command::new("claude")
+        .arg("--system-prompt")
+        .arg(&system_prompt)
+        .arg("Talk strategy")
+        .status();
+
+    match status {
+        Ok(exit_status) => {
+            if !exit_status.success() {
+                return ChatResult::Error(format!(
+                    "Claude exited with status: {}",
+                    exit_status.code().unwrap_or(-1)
+                ));
+            }
+        }
+        Err(e) => {
+            return ChatResult::Error(format!("Failed to spawn claude: {}", e));
+        }
+    }
+
+    // Check if temp file exists with revised strategy
+    if temp_path.exists() {
+        match std::fs::read_to_string(&temp_path) {
+            Ok(content) => {
+                let _ = std::fs::remove_file(&temp_path);
+                let trimmed = content.trim();
+                if !trimmed.is_empty() {
+                    return ChatResult::RevisedStrategy(trimmed.to_string());
+                }
+            }
+            Err(e) => {
+                let _ = std::fs::remove_file(&temp_path);
+                return ChatResult::Error(format!("Failed to read revised strategy: {}", e));
+            }
+        }
+    }
+
+    ChatResult::NoChanges
 }
 
 /// Create a fresh agent with an edited strategy
