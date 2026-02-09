@@ -1,5 +1,5 @@
 use crate::session::{ClaudeSession, SessionResult};
-use crate::strategy::{build_implementation_prompt, build_strategy_prompt, parse_strategy};
+use crate::strategy::{build_implementation_prompt, build_strategy_prompt, parse_strategy, Strategy};
 use crate::workspace::Workspace;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
@@ -9,7 +9,7 @@ use crossterm::{
 use futures::future::join_all;
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
 use std::io::{stdout, Write};
 use std::path::Path;
@@ -28,7 +28,7 @@ pub struct InstanceResult {
 
 #[derive(Debug, Clone)]
 struct StrategyInfo {
-    strategy: String,
+    strategy: Strategy,
     transcript: String,
     failed: bool,
     error: Option<String>,
@@ -61,7 +61,7 @@ pub async fn run(
         let existing_strategies: Vec<String> = strategy_infos
             .iter()
             .filter(|s| !s.failed)
-            .map(|s| s.strategy.clone())
+            .map(|s| s.strategy.markdown.clone())
             .collect();
 
         let strategy_prompt = build_strategy_prompt(prompt, &existing_strategies);
@@ -72,7 +72,10 @@ pub async fn run(
             println!("=== END PROMPT ===\n");
 
             strategy_infos.push(StrategyInfo {
-                strategy: format!("[DRY RUN] Strategy {} would be generated here", i),
+                strategy: Strategy::parse(&format!(
+                    "[DRY RUN] Strategy {} would be generated here",
+                    i
+                )),
                 transcript: strategy_prompt,
                 failed: false,
                 error: None,
@@ -87,9 +90,9 @@ pub async fn run(
             Ok(response) => {
                 let strategy = parse_strategy(&response);
                 if interactive {
-                    println!("  C{}: {}", i, truncate_for_log(&strategy, 60));
+                    println!("  C{}: {}", i, truncate_for_log(&strategy.markdown, 60));
                 } else {
-                    tracing::info!(instance = i, strategy = %strategy, "Strategy extracted");
+                    tracing::info!(instance = i, strategy = %strategy.markdown, "Strategy extracted");
                 }
 
                 strategy_infos.push(StrategyInfo {
@@ -108,7 +111,7 @@ pub async fn run(
                 }
 
                 strategy_infos.push(StrategyInfo {
-                    strategy: format!("[FAILED] {}", error_msg),
+                    strategy: Strategy::failed(&error_msg),
                     transcript: format!("Error: {}", e),
                     failed: true,
                     error: Some(error_msg),
@@ -134,10 +137,10 @@ pub async fn run(
                 .iter()
                 .enumerate()
                 .filter(|(idx, s)| *idx != i && !s.failed)
-                .map(|(_, s)| s.strategy.clone())
+                .map(|(_, s)| s.strategy.markdown.clone())
                 .collect();
 
-            let impl_prompt = build_implementation_prompt(prompt, &info.strategy, &excluded);
+            let impl_prompt = build_implementation_prompt(prompt, &info.strategy.markdown, &excluded);
             println!("\n=== DRY RUN: Implementation prompt for C{} ===", i);
             println!("{}", impl_prompt);
             println!("=== END PROMPT ===");
@@ -148,7 +151,7 @@ pub async fn run(
             .enumerate()
             .map(|(i, info)| InstanceResult {
                 instance_id: i,
-                strategy: info.strategy,
+                strategy: info.strategy.markdown,
                 workspace_path: String::new(),
                 success: true,
                 error: None,
@@ -169,7 +172,7 @@ pub async fn run(
         .enumerate()
         .map(|(i, info)| {
             let prompt = prompt.to_string();
-            let strategy = info.strategy.clone();
+            let strategy = info.strategy.markdown.clone();
             let strategy_transcript = info.transcript.clone();
             let failed = info.failed;
             let strategy_error = info.error.clone();
@@ -178,7 +181,7 @@ pub async fn run(
                 .iter()
                 .enumerate()
                 .filter(|(idx, s)| *idx != i && !s.failed)
-                .map(|(_, s)| s.strategy.clone())
+                .map(|(_, s)| s.strategy.markdown.clone())
                 .collect();
             let run_dir = run_dir.to_path_buf();
 
@@ -216,7 +219,7 @@ pub async fn run(
                 instance_id: i,
                 strategy: strategy_infos
                     .get(i)
-                    .map(|s| s.strategy.clone())
+                    .map(|s| s.strategy.markdown.clone())
                     .unwrap_or_default(),
                 workspace_path: String::new(),
                 success: false,
@@ -418,8 +421,8 @@ fn markdown_to_styled_text(md: &str) -> Text<'static> {
         }
         // Bullet points
         else if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
-            let bullet = &line[..line.find(|c| c == '-' || c == '*').unwrap() + 2];
-            let rest = &line[line.find(|c| c == '-' || c == '*').unwrap() + 2..];
+            let bullet = &line[..line.find(['-', '*']).unwrap() + 2];
+            let rest = &line[line.find(['-', '*']).unwrap() + 2..];
             lines.push(Line::from(vec![
                 Span::styled(bullet.to_string(), Style::default().fg(Color::Blue)),
                 Span::styled(rest.to_string(), Style::default().fg(Color::White)),
@@ -534,6 +537,7 @@ async fn interactive_strategy_review(
 
     let mut status_message: Option<String> = None;
     let mut clipboard = arboard::Clipboard::new().ok();
+    let mut show_help_popup = false;
 
     loop {
         let n = strategy_infos.len();
@@ -562,7 +566,7 @@ async fn interactive_strategy_review(
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Min(5),    // List
-                    Constraint::Length(2), // Help
+                    Constraint::Length(1), // Help hint
                     Constraint::Length(1), // Status
                 ])
                 .split(main_chunks[0]);
@@ -588,11 +592,13 @@ async fn interactive_strategy_review(
                         vec![]
                     };
 
-                    // Truncate strategy for list display
-                    let strategy_display = if info.strategy.len() > list_width {
-                        format!("{}…", &info.strategy[..list_width.saturating_sub(1)])
+                    // Show strategy highlights or truncated raw text
+                    let strategy_display = if !info.strategy.highlights.is_empty() {
+                        info.strategy.highlights.join(" · ")
+                    } else if info.strategy.raw.len() > list_width {
+                        format!("{}…", &info.strategy.raw[..list_width.saturating_sub(1)])
                     } else {
-                        info.strategy.clone()
+                        info.strategy.raw.clone()
                     };
 
                     let mut spans = vec![Span::styled(
@@ -625,11 +631,9 @@ async fn interactive_strategy_review(
 
             frame.render_stateful_widget(list, left_chunks[0], &mut list_state);
 
-            // Help text
-            let help = Paragraph::new(
-                "↑/k ↓/j: Navigate | Enter: Edit/Accept | c: Copy | d: Delete | o: Add | q: Quit",
-            )
-            .style(Style::default().fg(Color::DarkGray));
+            // Help hint
+            let help = Paragraph::new("?: Help & keymaps")
+                .style(Style::default().fg(Color::DarkGray));
             frame.render_widget(help, left_chunks[1]);
 
             // Status message
@@ -650,7 +654,7 @@ async fn interactive_strategy_review(
                     let info = &strategy_infos[selected_idx];
 
                     // Render strategy with markdown styling
-                    let strategy_text = markdown_to_styled_text(&info.strategy);
+                    let strategy_text = markdown_to_styled_text(&info.strategy.markdown);
 
                     // Prepend status line for failed/edited
                     if info.failed {
@@ -692,6 +696,59 @@ async fn interactive_strategy_review(
 
                 frame.render_widget(preview, main_chunks[1]);
             }
+
+            // Help popup overlay
+            if show_help_popup {
+                let help_text = vec![
+                    Line::from(vec![
+                        Span::styled("↑/k", Style::default().add_modifier(Modifier::BOLD)),
+                        Span::raw("  Move up"),
+                    ]),
+                    Line::from(vec![
+                        Span::styled("↓/j", Style::default().add_modifier(Modifier::BOLD)),
+                        Span::raw("  Move down"),
+                    ]),
+                    Line::from(vec![
+                        Span::styled("Enter", Style::default().add_modifier(Modifier::BOLD)),
+                        Span::raw("  Edit strategy / Accept all"),
+                    ]),
+                    Line::from(vec![
+                        Span::styled("c", Style::default().add_modifier(Modifier::BOLD)),
+                        Span::raw("  Copy to clipboard"),
+                    ]),
+                    Line::from(vec![
+                        Span::styled("d", Style::default().add_modifier(Modifier::BOLD)),
+                        Span::raw("  Delete strategy"),
+                    ]),
+                    Line::from(vec![
+                        Span::styled("o", Style::default().add_modifier(Modifier::BOLD)),
+                        Span::raw("  Add new strategy"),
+                    ]),
+                    Line::from(vec![
+                        Span::styled("q/Esc", Style::default().add_modifier(Modifier::BOLD)),
+                        Span::raw("  Quit"),
+                    ]),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "Press any key to close",
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ];
+
+                let popup_width = 35;
+                let popup_height = help_text.len() as u16 + 2; // +2 for borders
+                let popup_area = Rect {
+                    x: area.width.saturating_sub(popup_width) / 2,
+                    y: area.height.saturating_sub(popup_height) / 2,
+                    width: popup_width.min(area.width),
+                    height: popup_height.min(area.height),
+                };
+
+                frame.render_widget(Clear, popup_area);
+                let popup = Paragraph::new(help_text)
+                    .block(Block::default().borders(Borders::ALL).title(" Keymaps "));
+                frame.render_widget(popup, popup_area);
+            }
         })?;
 
         // Handle input
@@ -707,6 +764,16 @@ async fn interactive_strategy_review(
                         disable_raw_mode()?;
                         stdout().execute(LeaveAlternateScreen)?;
                         return Ok(vec![]);
+                    }
+
+                    // Handle help popup
+                    if show_help_popup {
+                        show_help_popup = false;
+                        continue;
+                    }
+                    if key.code == KeyCode::Char('?') {
+                        show_help_popup = true;
+                        continue;
                     }
 
                     match key.code {
@@ -739,11 +806,11 @@ async fn interactive_strategy_review(
                             stdout().execute(LeaveAlternateScreen)?;
 
                             let idx = selected;
-                            let original_strategy = strategy_infos[idx].strategy.clone();
+                            let original_markdown = strategy_infos[idx].strategy.markdown.clone();
 
-                            match edit_strategy_in_editor(&original_strategy) {
-                                Ok(Some(edited_strategy))
-                                    if edited_strategy != original_strategy =>
+                            match edit_strategy_in_editor(&original_markdown) {
+                                Ok(Some(edited_markdown))
+                                    if edited_markdown != original_markdown =>
                                 {
                                     println!(
                                         "Strategy modified for C{}, creating new agent...",
@@ -754,7 +821,7 @@ async fn interactive_strategy_review(
                                         prompt,
                                         &strategy_infos,
                                         idx,
-                                        &edited_strategy,
+                                        &edited_markdown,
                                     )
                                     .await
                                     {
@@ -804,7 +871,7 @@ async fn interactive_strategy_review(
                             let selected = list_state.selected().unwrap_or(n);
                             if selected < n {
                                 if let Some(ref mut cb) = clipboard {
-                                    let strategy_text = &strategy_infos[selected].strategy;
+                                    let strategy_text = &strategy_infos[selected].strategy.markdown;
                                     match cb.set_text(strategy_text.clone()) {
                                         Ok(()) => {
                                             status_message =
@@ -833,7 +900,7 @@ async fn interactive_strategy_review(
                             let existing_strategies: Vec<String> = strategy_infos
                                 .iter()
                                 .filter(|s| !s.failed)
-                                .map(|s| s.strategy.clone())
+                                .map(|s| s.strategy.markdown.clone())
                                 .collect();
 
                             let strategy_prompt =
@@ -843,7 +910,7 @@ async fn interactive_strategy_review(
                             match session.query_strategy(&strategy_prompt).await {
                                 Ok(response) => {
                                     let strategy = parse_strategy(&response);
-                                    println!("  C{}: {}", n, truncate_for_log(&strategy, 60));
+                                    println!("  C{}: {}", n, truncate_for_log(&strategy.markdown, 60));
 
                                     strategy_infos.push(StrategyInfo {
                                         strategy,
@@ -858,7 +925,7 @@ async fn interactive_strategy_review(
                                     let error_msg = format!("Failed to generate strategy: {}", e);
                                     eprintln!("ERROR: {}", error_msg);
                                     strategy_infos.push(StrategyInfo {
-                                        strategy: format!("[FAILED] {}", error_msg),
+                                        strategy: Strategy::failed(&error_msg),
                                         transcript: format!("Error: {}", e),
                                         failed: true,
                                         error: Some(error_msg.clone()),
@@ -946,7 +1013,7 @@ async fn create_agent_with_edited_strategy(
         .iter()
         .enumerate()
         .filter(|(i, s)| *i != target_idx && !s.failed)
-        .map(|(_, s)| s.strategy.clone())
+        .map(|(_, s)| s.strategy.markdown.clone())
         .collect();
 
     let strategy_prompt = format!(
@@ -982,14 +1049,14 @@ STRATEGY: <restate the strategy in your own words>"#,
 
     match session.query_strategy(&strategy_prompt).await {
         Ok(response) => {
-            let strategy = parse_strategy(&response);
+            let _parsed = parse_strategy(&response);
             tracing::debug!(
                 instance = target_idx,
-                strategy = %strategy,
+                strategy = %edited_strategy,
                 "Agent created with edited strategy"
             );
             Ok(StrategyInfo {
-                strategy: edited_strategy.to_string(),
+                strategy: Strategy::parse(edited_strategy),
                 transcript: response,
                 failed: false,
                 error: None,
@@ -1000,7 +1067,7 @@ STRATEGY: <restate the strategy in your own words>"#,
             let error_msg = format!("Failed to create agent with edited strategy: {}", e);
             eprintln!("ERROR [C{}]: {}", target_idx, error_msg);
             Ok(StrategyInfo {
-                strategy: format!("[FAILED] {}", error_msg),
+                strategy: Strategy::failed(&error_msg),
                 transcript: format!("Error: {}", e),
                 failed: true,
                 error: Some(error_msg),

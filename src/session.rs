@@ -7,12 +7,6 @@ use thiserror::Error;
 pub enum SessionError {
     #[error("Claude Code SDK error: {0}")]
     SdkError(String),
-
-    #[error("Strategy extraction failed: {0}")]
-    StrategyExtractionFailed(String),
-
-    #[error("Implementation failed: {0}")]
-    ImplementationFailed(String),
 }
 
 impl From<claude_code_agent_sdk::ClaudeError> for SessionError {
@@ -46,14 +40,11 @@ impl ClaudeSession {
     }
 
     fn build_options(&self) -> ClaudeAgentOptions {
-        let mut options = ClaudeAgentOptions::default();
-        options.permission_mode = Some(PermissionMode::BypassPermissions);
-
-        if let Some(ref cwd) = self.cwd {
-            options.cwd = Some(cwd.clone());
+        ClaudeAgentOptions {
+            permission_mode: Some(PermissionMode::BypassPermissions),
+            cwd: self.cwd.clone(),
+            ..Default::default()
         }
-
-        options
     }
 
     /// Query Claude for a strategy only (no implementation)
