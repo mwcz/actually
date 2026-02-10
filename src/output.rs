@@ -13,9 +13,10 @@ pub enum OutputError {
 /// Manages the output directory for a contra run
 /// Structure:
 ///   {base_dir}/contra-{timestamp}/
-///     strategies    - Summary of all strategies
-///     c0/           - Workspace and log for instance 0
-///     c1/           - Workspace and log for instance 1
+///     C0-strategy.md - Strategy for instance 0
+///     C1-strategy.md - Strategy for instance 1
+///     c0/            - Workspace and log for instance 0
+///     c1/            - Workspace and log for instance 1
 ///     ...
 pub struct RunOutput {
     run_dir: PathBuf,
@@ -47,28 +48,6 @@ impl RunOutput {
         self.run_dir.join(format!("c{}", instance_id))
     }
 
-    /// Write the strategies summary file
-    pub fn write_strategies(
-        &self,
-        strategies: &[(usize, String, bool)],
-    ) -> Result<(), OutputError> {
-        let strategies_path = self.run_dir.join("strategies");
-        let mut file = fs::File::create(&strategies_path)?;
-
-        writeln!(file, "CLAUDISSENT STRATEGIES")?;
-        writeln!(file, "======================")?;
-        writeln!(file)?;
-
-        for (id, strategy, success) in strategies {
-            let status = if *success { "OK" } else { "FAILED" };
-            writeln!(file, "C{} [{}]:", id, status)?;
-            writeln!(file, "  {}", strategy)?;
-            writeln!(file)?;
-        }
-
-        Ok(())
-    }
-
     /// Write a single agent's session log (inside the instance directory)
     pub fn write_agent_log(
         &self,
@@ -85,7 +64,7 @@ impl RunOutput {
         let log_path = instance_dir.join("session.log");
         let mut file = fs::File::create(&log_path)?;
 
-        writeln!(file, "CLAUDISSENT AGENT C{}", instance_id)?;
+        writeln!(file, "CONTRA AGENT C{}", instance_id)?;
         writeln!(file, "========================")?;
         writeln!(file)?;
         writeln!(
@@ -109,13 +88,6 @@ impl RunOutput {
 
     /// Write all outputs from a completed run
     pub fn write_results(&self, results: &[InstanceResult]) -> Result<(), OutputError> {
-        // Write strategies summary
-        let strategies: Vec<(usize, String, bool)> = results
-            .iter()
-            .map(|r| (r.instance_id, r.strategy.clone(), r.success))
-            .collect();
-        self.write_strategies(&strategies)?;
-
         // Write individual agent logs
         for result in results {
             self.write_agent_log(
