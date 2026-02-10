@@ -104,6 +104,11 @@ pub async fn run(
                     tracing::info!(instance = i, strategy = %strategy.markdown, "Strategy extracted");
                 }
 
+                // Write strategy to file immediately
+                if let Err(e) = write_strategy_file(run_dir, i, &strategy) {
+                    tracing::warn!(instance = i, error = %e, "Failed to write strategy file");
+                }
+
                 strategy_infos.push(StrategyInfo {
                     strategy,
                     transcript: response,
@@ -133,7 +138,7 @@ pub async fn run(
     // Interactive strategy review
     if interactive && !dry_run {
         println!();
-        strategy_infos = interactive_strategy_review(prompt, strategy_infos).await?;
+        strategy_infos = interactive_strategy_review(prompt, strategy_infos, run_dir).await?;
     }
 
     if dry_run {
@@ -283,6 +288,12 @@ fn truncate_for_log(s: &str, max_len: usize) -> String {
     } else {
         s.to_string()
     }
+}
+
+/// Write a strategy to a file in the run directory
+fn write_strategy_file(run_dir: &Path, idx: usize, strategy: &Strategy) -> std::io::Result<()> {
+    let path = run_dir.join(format!("C{}-strategy.md", idx));
+    std::fs::write(&path, &strategy.markdown)
 }
 
 /// Wrap a Line to fit within max_width, preserving styles
@@ -536,6 +547,7 @@ fn parse_inline_formatting(line: &str) -> Line<'static> {
 async fn interactive_strategy_review(
     prompt: &str,
     mut strategy_infos: Vec<StrategyInfo>,
+    run_dir: &Path,
 ) -> anyhow::Result<Vec<StrategyInfo>> {
     // Setup terminal
     enable_raw_mode()?;
@@ -841,6 +853,14 @@ async fn interactive_strategy_review(
                                     {
                                         Ok(new_info) => {
                                             strategy_infos[idx] = new_info;
+                                            // Write updated strategy to file
+                                            if let Err(e) = write_strategy_file(
+                                                run_dir,
+                                                idx,
+                                                &strategy_infos[idx].strategy,
+                                            ) {
+                                                tracing::warn!(instance = idx, error = %e, "Failed to write strategy file");
+                                            }
                                             status_message =
                                                 Some(format!("C{} strategy updated", idx));
                                         }
@@ -930,6 +950,11 @@ async fn interactive_strategy_review(
                                         truncate_for_log(&strategy.markdown, 60)
                                     );
 
+                                    // Write new strategy to file
+                                    if let Err(e) = write_strategy_file(run_dir, n, &strategy) {
+                                        tracing::warn!(instance = n, error = %e, "Failed to write strategy file");
+                                    }
+
                                     strategy_infos.push(StrategyInfo {
                                         strategy,
                                         transcript: response,
@@ -978,6 +1003,7 @@ async fn interactive_strategy_review(
                                     &strategy_infos[selected],
                                     selected,
                                     &excluded,
+                                    run_dir,
                                 ) {
                                     ChatResult::NoChanges => {
                                         status_message =
@@ -994,6 +1020,14 @@ async fn interactive_strategy_review(
                                             error: None,
                                             manually_edited: true,
                                         };
+                                        // Write revised strategy to file
+                                        if let Err(e) = write_strategy_file(
+                                            run_dir,
+                                            selected,
+                                            &strategy_infos[selected].strategy,
+                                        ) {
+                                            tracing::warn!(instance = selected, error = %e, "Failed to write strategy file");
+                                        }
                                         status_message =
                                             Some(format!("C{} strategy revised", selected));
                                     }
@@ -1078,16 +1112,11 @@ fn chat_with_strategy(
     strategy_info: &StrategyInfo,
     strategy_idx: usize,
     excluded_strategies: &[String],
+    run_dir: &Path,
 ) -> ChatResult {
-    // Create unique temp file path for revised strategy output
-    let temp_path = std::env::temp_dir().join(format!(
-        "contra-strategy-{}-{}.md",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
+    // Use the strategy file in run_dir for revised output
+    let strategy_path = run_dir.join(format!("C{}-strategy.md", strategy_idx));
+    let original_content = strategy_info.strategy.markdown.clone();
 
     // Build forbidden approaches section
     let exclusions = if excluded_strategies.is_empty() {
@@ -1122,7 +1151,7 @@ Discussing strategy: {}
 
 What would you like to know?
 
-Tip: Say **"revise"** and I will update the strategy. Then you may exit claude to return to `contra`.
+Tip: If you request changes to the strategy, they will be saved.  If they are not saved, say **"revise"**. Exiting claude will return you to `contra`.
 
 Then wait for the user's question. Answer their questions helpfully.
 Do not suggest alternative strategies - focus on the current one.
@@ -1138,7 +1167,7 @@ After writing the revised strategy, tell the user: "Strategy revised. Type `/exi
         strategy_info.strategy.markdown,
         exclusions,
         strategy_info.strategy.markdown,
-        temp_path.display()
+        strategy_path.display()
     );
 
     // Spawn claude CLI as subprocess (interactive TUI mode with system prompt)
@@ -1163,19 +1192,17 @@ After writing the revised strategy, tell the user: "Strategy revised. Type `/exi
         }
     }
 
-    // Check if temp file exists with revised strategy
-    if temp_path.exists() {
-        match std::fs::read_to_string(&temp_path) {
+    // Check if strategy file was modified
+    if strategy_path.exists() {
+        match std::fs::read_to_string(&strategy_path) {
             Ok(content) => {
-                let _ = std::fs::remove_file(&temp_path);
                 let trimmed = content.trim();
-                if !trimmed.is_empty() {
+                if !trimmed.is_empty() && trimmed != original_content.trim() {
                     return ChatResult::RevisedStrategy(trimmed.to_string());
                 }
             }
             Err(e) => {
-                let _ = std::fs::remove_file(&temp_path);
-                return ChatResult::Error(format!("Failed to read revised strategy: {}", e));
+                return ChatResult::Error(format!("Failed to read strategy file: {}", e));
             }
         }
     }
