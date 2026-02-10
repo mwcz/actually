@@ -75,6 +75,8 @@ const STRATEGY_PROMPT_TEMPLATE: &str = r#"For the following task, describe ONLY 
 
 Task: {task}
 
+IMPORTANT: Commit to ONE specific approach. Do NOT say "alternatively", "or", "optionally", or suggest multiple options. Pick one concrete solution and describe only that.
+
 Formatting: Using Markdown, put bold markers on the main features of your approach, and wrap any code snippets in backticks.
 
 Reply with exactly this format:
