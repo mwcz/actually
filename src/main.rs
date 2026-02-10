@@ -15,38 +15,46 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 #[command(about = "Orchestrate contrarian Claude Code instances")]
 #[command(version)]
 struct Args {
-    /// The prompt/task to solve
+    /// Natural language description of the coding task or problem to solve.
+    /// This prompt is sent to multiple AI agents, each using a different strategy.
     #[arg(required = true)]
     prompt: String,
 
-    /// Number of contrarian instances to run
+    /// Number of parallel agent instances to spawn, each developing an independent
+    /// solution strategy. Higher values provide more diverse approaches but increase
+    /// API costs and execution time.
     #[arg(short = 'n', long = "num", default_value = "3")]
     num_instances: usize,
 
-    /// Output directory for run artifacts and agent workspaces
+    /// Directory where session artifacts are written, including strategy files,
+    /// implementation logs, and per-agent workspace directories.
     #[arg(short, long, default_value = ".")]
     out_dir: String,
 
-    /// Enable verbose logging
+    /// Print detailed execution traces including API requests, token usage,
+    /// and intermediate agent reasoning steps.
     #[arg(short, long)]
     verbose: bool,
 
-    /// Dry run: show prompts without executing
+    /// Generate and display the strategy prompts without invoking agents.
+    /// Useful for inspecting what would be sent before committing to API calls.
     #[arg(long)]
     dry_run: bool,
 
-    /// Interactive strategy review and editing before implementation
-    #[arg(short, long)]
-    interactive: bool,
+    /// Skip interactive TUI and run in headless mode with tracing output.
+    /// By default, contra runs interactively with strategy review.
+    #[arg(long)]
+    headless: bool,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    // In interactive mode, suppress all tracing output
+    // In interactive mode (default), suppress all tracing output
     // All user-facing output uses println
-    let filter = if args.interactive {
+    let interactive = !args.headless;
+    let filter = if interactive {
         "off"
     } else if args.verbose {
         "contra=debug,claude_code_agent_sdk=debug"
@@ -61,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    if args.interactive {
+    if interactive {
         println!(
             "Starting Contra (Contrarian Claude): {} instances, prompt: \"{}\"",
             args.num_instances,
@@ -76,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Create run output directory structure
-    let run_output = RunOutput::create(Path::new(&args.out_dir), args.interactive)?;
+    let run_output = RunOutput::create(Path::new(&args.out_dir), interactive)?;
 
     // Run with signal handling
     let results = tokio::select! {
@@ -85,10 +93,10 @@ async fn main() -> anyhow::Result<()> {
             args.num_instances,
             run_output.path(),
             args.dry_run,
-            args.interactive,
+            interactive,
         ) => result?,
         _ = signal::ctrl_c() => {
-            if args.interactive {
+            if interactive {
                 println!("\nInterrupted");
             } else {
                 tracing::info!("Received SIGINT, shutting down");
@@ -100,7 +108,7 @@ async fn main() -> anyhow::Result<()> {
     // Write output files
     run_output.write_results(&results)?;
 
-    if args.interactive {
+    if interactive {
         println!("Output: {}", run_output.path().display());
     } else {
         tracing::info!(
