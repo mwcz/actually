@@ -20,3 +20,5 @@ Cargo.lock
 
 # keep aoc inputs out of the repo
 /input
+
+/actually-*
