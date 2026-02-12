@@ -4,6 +4,8 @@ Actually, this tool forces Claude Code agents into creative thinking by pitting 
 
 Great for brainstorming, and for rapidly implementing a suite of competing approaches for comparison.
 
+Requires Claude Code.
+
 ## Install
 
 ```bash
