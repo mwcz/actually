@@ -1,8 +1,8 @@
 [package]
-name = "contra"
+name = "actually"
 version = "0.1.0"
 edition = "2021"
-description = "Orchestrate contrarian Claude Code instances"
+description = "Actually, this tool forces Claude Code agents into creative thinking by pitting them against each other as contrarian strategists."
 license = "MIT"
 
 [dependencies]
@@ -17,6 +17,6 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3"
-ratatui = "0.29"
-crossterm = "0.28"
+ratatui = "0.30"
+crossterm = "0.29.0"
 arboard = { version = "3", features = ["wayland-data-control"] }

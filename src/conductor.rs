@@ -250,7 +250,7 @@ pub async fn run(
     if interactive {
         println!("Complete: {} succeeded, {} failed", succeeded, failed_count);
     } else {
-        tracing::info!(succeeded, failed = failed_count, "Contra complete");
+        tracing::info!(succeeded, failed = failed_count, "actually complete");
     }
 
     for result in &results {
@@ -1151,7 +1151,7 @@ Discussing strategy: {}
 
 What would you like to know?
 
-Tip: If you request changes to the strategy, they will be saved.  If they are not saved, say **"revise"**. Exiting claude will return you to `contra`.
+Tip: If you request changes to the strategy, they will be saved.  If they are not saved, say **"revise"**. Exiting claude will return you to `actually`.
 
 Then wait for the user's question. Answer their questions helpfully.
 Do not suggest alternative strategies - focus on the current one.
@@ -1161,7 +1161,7 @@ strategy (in markdown with **bold** key qualities) to this file:
 {}
 
 When writing to the file, include ONLY the strategy text, nothing else.
-After writing the revised strategy, tell the user: "Strategy revised. Type `/exit` to return to contra.""#,
+After writing the revised strategy, tell the user: "Strategy revised. Type `/exit` to return to `actually`.""#,
         task_prompt,
         strategy_idx,
         strategy_info.strategy.markdown,

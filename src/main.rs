@@ -11,8 +11,8 @@ use tokio::signal;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser, Debug)]
-#[command(name = "contra")]
-#[command(about = "Orchestrate contrarian Claude Code instances")]
+#[command(name = "actually")]
+#[command(about = "Orchestrate multiple Claude Code instances with different strategies")]
 #[command(version)]
 struct Args {
     /// Natural language description of the coding task or problem to solve.
@@ -42,7 +42,7 @@ struct Args {
     dry_run: bool,
 
     /// Skip interactive TUI and run in headless mode with tracing output.
-    /// By default, contra runs interactively with strategy review.
+    /// By default, actually runs interactively with strategy review.
     #[arg(long)]
     headless: bool,
 }
@@ -57,9 +57,9 @@ async fn main() -> anyhow::Result<()> {
     let filter = if interactive {
         "off"
     } else if args.verbose {
-        "contra=debug,claude_code_agent_sdk=debug"
+        "actually=debug,claude_code_agent_sdk=debug"
     } else {
-        "contra=info"
+        "actually=info"
     };
 
     tracing_subscriber::registry()
@@ -71,7 +71,7 @@ async fn main() -> anyhow::Result<()> {
 
     if interactive {
         println!(
-            "Starting Contra (Contrarian Claude): {} instances, prompt: \"{}\"",
+            "actually starting: {} instances, prompt: \"{}\"",
             args.num_instances,
             truncate(&args.prompt, 50)
         );
@@ -79,7 +79,7 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!(
             num_instances = args.num_instances,
             dry_run = args.dry_run,
-            "Starting contra (Contrarian Claude)"
+            "actually starting"
         );
     }
 

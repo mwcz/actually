@@ -10,9 +10,9 @@ pub enum OutputError {
     CreateDirFailed(#[from] std::io::Error),
 }
 
-/// Manages the output directory for a contra run
+/// Manages the output directory for an actually run
 /// Structure:
-///   {base_dir}/contra-{timestamp}/
+///   {base_dir}/actually-{timestamp}/
 ///     C0-strategy.md - Strategy for instance 0
 ///     C1-strategy.md - Strategy for instance 1
 ///     c0/            - Workspace and log for instance 0
@@ -30,7 +30,7 @@ impl RunOutput {
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
-        let dir_name = format!("contra-{}", timestamp);
+        let dir_name = format!("actually-{}", timestamp);
         let run_dir = base_dir.join(dir_name);
 
         fs::create_dir_all(&run_dir)?;
@@ -64,7 +64,7 @@ impl RunOutput {
         let log_path = instance_dir.join("session.log");
         let mut file = fs::File::create(&log_path)?;
 
-        writeln!(file, "CONTRA AGENT C{}", instance_id)?;
+        writeln!(file, "ACTUALLY AGENT C{}", instance_id)?;
         writeln!(file, "========================")?;
         writeln!(file)?;
         writeln!(
