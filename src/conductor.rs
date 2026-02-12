@@ -636,7 +636,7 @@ async fn interactive_strategy_review(
 
             // Add Accept option
             items.push(ListItem::new(Line::from(vec![Span::styled(
-                ">>> Accept all and proceed <<<",
+                ">>> Accept all and begin implementation <<<",
                 Style::default()
                     .fg(Color::Green)
                     .add_modifier(Modifier::BOLD),
@@ -723,36 +723,36 @@ async fn interactive_strategy_review(
             if show_help_popup {
                 let help_text = vec![
                     Line::from(vec![
-                        Span::styled("↑/k", Style::default().add_modifier(Modifier::BOLD)),
-                        Span::raw("  Move up"),
+                        Span::styled("?", Style::default().add_modifier(Modifier::BOLD)),
+                        Span::raw("           Show keymaps"),
                     ]),
                     Line::from(vec![
-                        Span::styled("↓/j", Style::default().add_modifier(Modifier::BOLD)),
-                        Span::raw("  Move down"),
+                        Span::styled("↑/↓ or k/j", Style::default().add_modifier(Modifier::BOLD)),
+                        Span::raw("  Navigate"),
                     ]),
                     Line::from(vec![
                         Span::styled("Enter", Style::default().add_modifier(Modifier::BOLD)),
-                        Span::raw("  Edit strategy / Accept all"),
-                    ]),
-                    Line::from(vec![
-                        Span::styled("c", Style::default().add_modifier(Modifier::BOLD)),
-                        Span::raw("  Copy to clipboard"),
-                    ]),
-                    Line::from(vec![
-                        Span::styled("d", Style::default().add_modifier(Modifier::BOLD)),
-                        Span::raw("  Delete strategy"),
-                    ]),
-                    Line::from(vec![
-                        Span::styled("o", Style::default().add_modifier(Modifier::BOLD)),
-                        Span::raw("  Add new strategy"),
+                        Span::raw("       Edit strategy with $EDITOR"),
                     ]),
                     Line::from(vec![
                         Span::styled("t", Style::default().add_modifier(Modifier::BOLD)),
-                        Span::raw("  Talk/chat about strategy"),
+                        Span::raw("           Chat about strategy"),
                     ]),
                     Line::from(vec![
-                        Span::styled("q/Esc", Style::default().add_modifier(Modifier::BOLD)),
-                        Span::raw("  Quit"),
+                        Span::styled("o", Style::default().add_modifier(Modifier::BOLD)),
+                        Span::raw("           Add strategy"),
+                    ]),
+                    Line::from(vec![
+                        Span::styled("d", Style::default().add_modifier(Modifier::BOLD)),
+                        Span::raw("           Delete strategy"),
+                    ]),
+                    Line::from(vec![
+                        Span::styled("c", Style::default().add_modifier(Modifier::BOLD)),
+                        Span::raw("           Copy strategy to clipboard"),
+                    ]),
+                    Line::from(vec![
+                        Span::styled("q", Style::default().add_modifier(Modifier::BOLD)),
+                        Span::raw("           Quit"),
                     ]),
                     Line::from(""),
                     Line::from(Span::styled(
@@ -761,7 +761,7 @@ async fn interactive_strategy_review(
                     )),
                 ];
 
-                let popup_width = 35;
+                let popup_width = 42;
                 let popup_height = help_text.len() as u16 + 2; // +2 for borders
                 let popup_area = Rect {
                     x: area.width.saturating_sub(popup_width) / 2,
