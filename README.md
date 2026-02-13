@@ -9,7 +9,7 @@ Requires Claude Code.
 ## Install
 
 ```bash
-cargo install --path actually
+cargo install actually
 ```
 
 ## Usage
