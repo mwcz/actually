@@ -42,6 +42,31 @@ After sequential strategizing, a TUI will appear with a preview of each contrari
 
 Below the strategies is a button: `>>> Accept all and begin implementation <<<`.  Selecting it will launch several Claude Code agents in parallel who will perform the implementation for each strategy.
 
+## How it works
+
+`actually` has three phases.  Phase 1 involves plan forming and operates sequentially, since each agent must reject the plans of the prior agents.  Phase 2 is an interactive TUI where you can review strategies, copy them to clipboard, delete bad ones, add new ones, even ask an agent about its chosen strategy.  Phase 3 involves implementing each plan, and is entirely optional.  As a brainstorming tool, Phase 1 and 2 are useful, but Phase 3 is only good if you want to compare concrete implementations of each strategy.
+
+```
+T: the given task
+C1..Cn: Claude code instances
+S1..Sn: the problem solving strategy proposed by the respective Cn instance
+
+Phase 1: Strategies are devised sequentially, with each agent rejecting the strategies of the prior agents.
+
+ 1. Run C1 with T, collect S1
+ 2. Run C2 with T + -S1
+ 3. Run C3 with T - (S1 + S2)
+ ...
+ n. Run Cn with T - (S1 + S2 + S3 ... + Sn)
+
+Phase 2: Strategies are implemented in parallel
+
+ C1 implements S1
+ C2 implements S2
+ ...
+ Cn implements Sn
+```
+
 ## Behavior to expect
 
 Generally, the first agent (`C0`) will produce the most obvious strategy.  Subsequent agents' strategies will become increasingly "out-there" as they reject the previous agents' more mainstream strategies.
