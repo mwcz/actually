@@ -24,6 +24,8 @@ actually "your task description"
 
 - `--headless` - Skip interactive TUI, run with tracing output
 - `-n <count>` - Number of parallel strategies (default: 3). Higher values force increasingly unconventional approaches.
+- `-m <model>` / `--model <model>` - Model to use for all Claude Code instances. If not specified, uses the model currently set as default in Claude Code.
+- `--impl-model <model>` - Model to use specifically for implementation agents (Phase 3). Falls back to `--model` if not set.
 
 ## Strategy preview
 

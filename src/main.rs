@@ -45,6 +45,17 @@ struct Args {
     /// By default, actually runs interactively with strategy review.
     #[arg(long)]
     headless: bool,
+
+    /// Optionally specify which model to use within the Claude Code instances.  If not specified,
+    /// the model currently set within Claude Code as the default will be used.
+    #[arg(short = 'm', long)]
+    model: Option<String>,
+
+    /// Optionally specify which model to use within the Claude Code instances for implementing
+    /// strategies.  If not specified, the value given in `--model` will be used, and if `--model`
+    /// is not given, the model currently set within Claude Code as the default will be used.
+    #[arg(long = "impl-model")]
+    impl_model: Option<String>,
 }
 
 #[tokio::main]
@@ -94,6 +105,8 @@ async fn main() -> anyhow::Result<()> {
             run_output.path(),
             args.dry_run,
             interactive,
+            args.model.as_deref(),
+            args.impl_model.as_deref(),
         ) => result?,
         _ = signal::ctrl_c() => {
             if interactive {

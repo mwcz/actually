@@ -26,16 +26,21 @@ pub struct SessionResult {
 
 pub struct ClaudeSession {
     cwd: Option<PathBuf>,
+    model: Option<String>,
 }
 
 impl ClaudeSession {
-    pub fn new() -> Self {
-        Self { cwd: None }
+    pub fn with_model(model: Option<&str>) -> Self {
+        Self {
+            cwd: None,
+            model: model.map(|s| s.to_string()),
+        }
     }
 
-    pub fn with_cwd(cwd: &Path) -> Self {
+    pub fn with_cwd_and_model(cwd: &Path, model: Option<&str>) -> Self {
         Self {
             cwd: Some(cwd.to_path_buf()),
+            model: model.map(|s| s.to_string()),
         }
     }
 
@@ -43,6 +48,7 @@ impl ClaudeSession {
         ClaudeAgentOptions {
             permission_mode: Some(PermissionMode::BypassPermissions),
             cwd: self.cwd.clone(),
+            model: self.model.clone(),
             ..Default::default()
         }
     }
@@ -127,7 +133,10 @@ impl ClaudeSession {
 
 impl Default for ClaudeSession {
     fn default() -> Self {
-        Self::new()
+        Self {
+            cwd: None,
+            model: None,
+        }
     }
 }
 

@@ -50,6 +50,8 @@ pub async fn run(
     run_dir: &Path,
     dry_run: bool,
     interactive: bool,
+    strategy_model: Option<&str>,
+    impl_model: Option<&str>,
 ) -> anyhow::Result<Vec<InstanceResult>> {
     let mut strategy_infos: Vec<StrategyInfo> = Vec::with_capacity(n);
 
@@ -93,7 +95,7 @@ pub async fn run(
             continue;
         }
 
-        let session = ClaudeSession::new();
+        let session = ClaudeSession::with_model(strategy_model);
 
         match session.query_strategy(&strategy_prompt).await {
             Ok(response) => {
@@ -138,7 +140,7 @@ pub async fn run(
     // Interactive strategy review
     if interactive && !dry_run {
         println!();
-        strategy_infos = interactive_strategy_review(prompt, strategy_infos, run_dir).await?;
+        strategy_infos = interactive_strategy_review(prompt, strategy_infos, run_dir, strategy_model).await?;
     }
 
     if dry_run {
@@ -199,6 +201,7 @@ pub async fn run(
                 .map(|(_, s)| s.strategy.markdown.clone())
                 .collect();
             let run_dir = run_dir.to_path_buf();
+            let effective_impl_model = impl_model.or(strategy_model).map(|s| s.to_string());
 
             tokio::spawn(async move {
                 if failed {
@@ -218,6 +221,7 @@ pub async fn run(
                     &strategy_transcript,
                     &excluded,
                     &run_dir,
+                    effective_impl_model,
                 )
                 .await
             })
@@ -548,6 +552,7 @@ async fn interactive_strategy_review(
     prompt: &str,
     mut strategy_infos: Vec<StrategyInfo>,
     run_dir: &Path,
+    strategy_model: Option<&str>,
 ) -> anyhow::Result<Vec<StrategyInfo>> {
     // Setup terminal
     enable_raw_mode()?;
@@ -848,6 +853,7 @@ async fn interactive_strategy_review(
                                         &strategy_infos,
                                         idx,
                                         &edited_markdown,
+                                        strategy_model,
                                     )
                                     .await
                                     {
@@ -939,7 +945,7 @@ async fn interactive_strategy_review(
 
                             let strategy_prompt =
                                 build_strategy_prompt(prompt, &existing_strategies);
-                            let session = ClaudeSession::new();
+                            let session = ClaudeSession::with_model(strategy_model);
 
                             match session.query_strategy(&strategy_prompt).await {
                                 Ok(response) => {
@@ -1216,6 +1222,7 @@ async fn create_agent_with_edited_strategy(
     existing_infos: &[StrategyInfo],
     target_idx: usize,
     edited_strategy: &str,
+    strategy_model: Option<&str>,
 ) -> anyhow::Result<StrategyInfo> {
     let existing_strategies: Vec<String> = existing_infos
         .iter()
@@ -1253,7 +1260,7 @@ STRATEGY: <restate the strategy in your own words>"#,
         }
     );
 
-    let session = ClaudeSession::new();
+    let session = ClaudeSession::with_model(strategy_model);
 
     match session.query_strategy(&strategy_prompt).await {
         Ok(response) => {
@@ -1292,6 +1299,7 @@ async fn run_instance(
     strategy_transcript: &str,
     excluded_strategies: &[String],
     run_dir: &Path,
+    impl_model: Option<String>,
 ) -> InstanceResult {
     let workspace = match Workspace::create(run_dir, id) {
         Ok(ws) => ws,
@@ -1308,7 +1316,7 @@ async fn run_instance(
     };
 
     let full_prompt = build_implementation_prompt(prompt, strategy, excluded_strategies);
-    let session = ClaudeSession::with_cwd(workspace.path());
+    let session = ClaudeSession::with_cwd_and_model(workspace.path(), impl_model.as_deref());
 
     match session.run_implementation(&full_prompt).await {
         Ok(SessionResult {
