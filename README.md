@@ -18,7 +18,8 @@ cargo install actually
 actually "your task description"
 ```
 
-**Important note**: The Claude Code agents launched by `actually` run with `--dangerously-skip-permissions` because approvals for a fleet of agents is overwhelming.  [Besides](https://mariozechner.at/posts/2025-11-30-pi-coding-agent/#toc_13).  Be warned: If you run `actually`, the agents *could do anything*.  No warranty, express or implied, etc.
+
+[Important note on agent permissions](#permissions)
 
 ## Options
 
@@ -74,6 +75,14 @@ Phase 2: Strategies are implemented in parallel
 Generally, the first agent (`C0`) will produce the most obvious strategy.  Subsequent agents' strategies will become increasingly "out-there" as they reject the previous agents' more mainstream strategies.
 
 Most of the time, I use `actually` purely for brainstorming, and I exit `actually` instead of selecting `>>> Accept all and begin implementation <<<`.  Implementation _can_ be interesting if you want to see multiple approaches for side-by-side comparison, but usually the strategy review phase is enough to get some novel ideas.
+
+## Permissions
+
+`actually` uses different permission modes per phase:
+
+- **Phase 1 (strategizing)**: Agents run in plan mode — read-only access to `$PWD` only, web search allowed, no writes, no command execution.
+- **Phase 2 (review TUI)**: The "Chat about strategy" feature (`t` key) launches an interactive `claude` subprocess with your default Claude Code permissions.
+- **Phase 3 (implementation)**: Entirely optional — only triggered if you explicitly select `>>> Accept all and begin implementation <<<` in the TUI. If you do, agents run with `--dangerously-skip-permissions` because approvals for a fleet of agents is overwhelming. [YOLO](https://mariozechner.at/posts/2025-11-30-pi-coding-agent/#toc_13). The agents *could do anything*. No warranty, express or implied, etc.
 
 ## AI Disclosure
 

@@ -44,9 +44,9 @@ impl ClaudeSession {
         }
     }
 
-    fn build_options(&self) -> ClaudeAgentOptions {
+    fn build_options(&self, permission_mode: PermissionMode) -> ClaudeAgentOptions {
         ClaudeAgentOptions {
-            permission_mode: Some(PermissionMode::BypassPermissions),
+            permission_mode: Some(permission_mode),
             cwd: self.cwd.clone(),
             model: self.model.clone(),
             ..Default::default()
@@ -58,7 +58,7 @@ impl ClaudeSession {
     pub async fn query_strategy(&self, prompt: &str) -> Result<String, SessionError> {
         tracing::debug!(prompt = %prompt, "Querying for strategy");
 
-        let options = self.build_options();
+        let options = self.build_options(PermissionMode::Plan);
         let messages = query(prompt, Some(options)).await?;
 
         let mut response_text = String::new();
@@ -77,7 +77,7 @@ impl ClaudeSession {
     pub async fn run_implementation(&self, prompt: &str) -> Result<SessionResult, SessionError> {
         tracing::debug!(prompt = %prompt, cwd = ?self.cwd, "Running implementation");
 
-        let options = self.build_options();
+        let options = self.build_options(PermissionMode::BypassPermissions);
         let mut client = ClaudeClient::new(options);
 
         client.connect().await?;
