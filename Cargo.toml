@@ -1,6 +1,6 @@
 [package]
 name = "actually"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 description = "Actually, this tool forces Claude Code agents into creative thinking by pitting them against each other as contrarian strategists."
 license = "MIT OR Apache-2.0"
