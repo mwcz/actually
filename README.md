@@ -81,7 +81,7 @@ Most of the time, I use `actually` purely for brainstorming, and I exit `actuall
 `actually` uses different permission modes per phase:
 
 - **Phase 1 (strategizing)**: Agents run in plan mode — read-only access to `$PWD` only, web search allowed, no writes, no command execution.
-- **Phase 2 (review TUI)**: The "Chat about strategy" feature (`t` key) launches an interactive `claude` subprocess with your default Claude Code permissions.
+- **Phase 2 (review TUI)**: No agents are active, so no permissions are needed.  The only way to launch an agent during this phase is the "Chat about strategy" feature (`t` key) which launches an interactive `claude` subprocess with your default Claude Code permissions.
 - **Phase 3 (implementation)**: Entirely optional — only triggered if you explicitly select `>>> Accept all and begin implementation <<<` in the TUI. If you do, agents run with `--dangerously-skip-permissions` because approvals for a fleet of agents is overwhelming. [YOLO](https://mariozechner.at/posts/2025-11-30-pi-coding-agent/#toc_13). The agents *could do anything*. No warranty, express or implied, etc.
 
 ## AI Disclosure
