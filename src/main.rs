@@ -71,7 +71,9 @@ async fn main() -> anyhow::Result<()> {
             io::stdin().read_to_string(&mut buf)?;
             let trimmed = buf.trim().to_string();
             if trimmed.is_empty() {
-                anyhow::bail!("No prompt provided. Usage: actually \"your task\" or pipe via stdin.");
+                anyhow::bail!(
+                    "No prompt provided. Usage: actually \"your task\" or pipe via stdin."
+                );
             }
             trimmed
         }

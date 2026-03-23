@@ -140,7 +140,8 @@ pub async fn run(
     // Interactive strategy review
     if interactive && !dry_run {
         println!();
-        strategy_infos = interactive_strategy_review(prompt, strategy_infos, run_dir, strategy_model).await?;
+        strategy_infos =
+            interactive_strategy_review(prompt, strategy_infos, run_dir, strategy_model).await?;
     }
 
     if dry_run {

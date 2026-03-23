@@ -71,9 +71,9 @@ impl fmt::Display for Strategy {
     }
 }
 
-const STRATEGY_PROMPT_TEMPLATE: &str = r#"For the following task, describe ONLY your implementation plan in 2-4 sentences. Do not implement anything yet.
+const STRATEGY_PROMPT_TEMPLATE: &str = r#"If the user prompt is a question, answer it in 2-4 sentences.  If it is a task to perform, describe ONLY your implementation plan in 2-4 sentences. Do not implement anything yet.
 
-Task: {task}
+User prompt: {task}
 
 IMPORTANT: Commit to ONE specific approach. Do NOT say "alternatively", "or", "optionally", or suggest multiple options. Pick one concrete solution and describe only that.
 
@@ -194,7 +194,8 @@ mod tests {
 
     #[test]
     fn test_parse_strategy() {
-        let response = "STRATEGY: I will use **Actix-web** with async **SQLx** for database access.";
+        let response =
+            "STRATEGY: I will use **Actix-web** with async **SQLx** for database access.";
         let strategy = parse_strategy(response);
         assert_eq!(
             strategy.markdown,
