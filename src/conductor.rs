@@ -560,7 +560,7 @@ async fn interactive_strategy_review(
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
     let mut list_state = ListState::default();
-    list_state.select(Some(strategy_infos.len())); // Default to Accept option
+    list_state.select(Some(0));
 
     let mut status_message: Option<String> = None;
     let mut clipboard = arboard::Clipboard::new().ok();
