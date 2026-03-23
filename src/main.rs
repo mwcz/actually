@@ -6,6 +6,7 @@ mod workspace;
 
 use clap::Parser;
 use output::RunOutput;
+use std::io::{self, Read};
 use std::path::Path;
 use tokio::signal;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -17,8 +18,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 struct Args {
     /// Natural language description of the coding task or problem to solve.
     /// This prompt is sent to multiple AI agents, each using a different strategy.
-    #[arg(required = true)]
-    prompt: String,
+    /// If omitted, the prompt is read from stdin.
+    prompt: Option<String>,
 
     /// Number of parallel agent instances to spawn, each developing an independent
     /// solution strategy. Higher values provide more diverse approaches but increase
@@ -62,6 +63,20 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
+    let prompt = match args.prompt {
+        Some(p) => p,
+        None => {
+            eprintln!("Reading prompt from stdin...");
+            let mut buf = String::new();
+            io::stdin().read_to_string(&mut buf)?;
+            let trimmed = buf.trim().to_string();
+            if trimmed.is_empty() {
+                anyhow::bail!("No prompt provided. Usage: actually \"your task\" or pipe via stdin.");
+            }
+            trimmed
+        }
+    };
+
     // In interactive mode (default), suppress all tracing output
     // All user-facing output uses println
     let interactive = !args.headless;
@@ -84,7 +99,7 @@ async fn main() -> anyhow::Result<()> {
         println!(
             "actually starting: {} instances, prompt: \"{}\"",
             args.num_instances,
-            truncate(&args.prompt, 50)
+            truncate(&prompt, 50)
         );
     } else {
         tracing::info!(
@@ -100,7 +115,7 @@ async fn main() -> anyhow::Result<()> {
     // Run with signal handling
     let results = tokio::select! {
         result = conductor::run(
-            &args.prompt,
+            &prompt,
             args.num_instances,
             run_output.path(),
             args.dry_run,
